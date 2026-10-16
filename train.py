@@ -1,3 +1,5 @@
+#!/bin/python3
+
 import os
 import datetime 
 import glob
@@ -21,8 +23,8 @@ import matplotlib.pyplot as plt
 # TRAINING PARAMS
 # ===================================
 model_dir = "/home/alewin/Documents/by-project/timber/models" # Models and config will be saved here
-data_dir = "/home/alewin/Documents/by-project/timber/regridded-runs" # Training data stored here
-input_files = glob.glob(os.join(data_dir,"ORCA2_1m_19*_ptrc_T_regrid_360x180.nc"))
+glob_str = "/home/alewin/Documents/datasets/timber/TOM12_TJ_A5BB_regrid/ORCA2_1m_19*_ptrc_T_regrid_360x180.nc" # glob representing all data to use, currently using everything pre-2000's for training
+input_files = glob.glob(glob_str) # Or set an array manually
 train_prop = 0.8 # Proportion of raw dataset to use for training, rest used for validation
 epoch_count = 50 # 50 epochs used successfully by Francesco
 learning_rate = 5e-5 # 5e-5 used successfully by Francesco
@@ -40,6 +42,10 @@ variable_key = "PIC" # Parameter to build a model for
 
 for input_file in input_files:
     print("Using " + input_file + " for training")
+
+if len(input_files) == 0:
+    print("No input files found for glob " + glob_str)
+    exit()
 
 now = datetime.datetime.now().astimezone(datetime.timezone.utc)
 model_output_dir = os.path.join(model_dir, "model_" + now.strftime("%Y-%m-%d_%H-%M-%S"))

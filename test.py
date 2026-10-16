@@ -1,4 +1,7 @@
+#!/bin/python3
+
 import os
+from pathlib import Path
 
 import numpy as np
 import xarray as xr
@@ -12,30 +15,31 @@ from matplotlib import cm
 
 from mpl_toolkits.basemap import Basemap
 
-
-data_dir = "/home/alewin/Documents/by-project/timber/regridded-runs"
-model_dir = "/home/alewin/Documents/by-project/timber/models/model_2026-10-08_00-47-26"
-model_checkpoint_dir = "/home/alewin/Documents/by-project/timber/models/model_2026-10-08_00-47-26/deepsensor_model_rmse_1.345298e-06"
-
+# ===================================
+# TEST PARAMS
+# ===================================
+model_checkpoint = "/home/alewin/Documents/by-project/timber/models/model_2026-10-08_00-47-26/deepsensor_model_rmse_1.345298e-06"
 input_files = [
-        "ORCA2_1m_20000101_20001231_ptrc_T_regrid_360x180.nc"
+        "/home/alewin/Documents/datasets/timber/TOM12_TJ_A5BB_regrid/ORCA2_1m_20000101_20001231_ptrc_T_regrid_360x180.nc"
     ]
+variable_key = "PIC"
+variable_name = "Pico-phytoplankton"
+# ===================================
+# TEST PARAMS
+# ===================================
 
-view_key = "PIC"
-view_ft = "Pico-phytoplankton"
+model_checkpoint_path = Path(model_checkpoint)
+model_data_processor_dir = str(model_checkpoint_path.parent.absolute())
 
+# Loop is currently not used, will be used in the future
 for fn in input_files:
-    xri = xr.open_dataset(os.path.join(data_dir, fn))
+    xri = xr.open_dataset(fn)
     xri["time_counter"] = xri.indexes["time_counter"].to_datetimeindex() # Translate generic object coordinates to datetime
-    #print(xri.values)
-    #print(xri.coords)
-    #print(list(xri.keys()))
+    #print(list(xri.keys())) Quick way to get all possible variable keys
     #surface_layer = xri["PIC"].sel(deptht=5, method="nearest")
-    surface_layer = xri[view_key].isel(deptht=1)
-    #print(surface_layer)
+    surface_layer = xri[variable_key].isel(deptht=1)
     month = surface_layer.sel(time_counter=pd.to_datetime("2000-05-01"), method="nearest")
-    #month = surface_layer.isel(time_counter=0)
-    #print(month)
+    #month = surface_layer.isel(time_counter=0) # Alternate way to get first value
     
 pointwise_len = 64
 
@@ -45,7 +49,7 @@ pointwise_len = 64
 
 # AIMOC zone (20, 70, -85, 15)   
 
-area_of_interest = (20, 70, 360-60, 360) # lat must be between -90 and 90, lon must be between -180 and 180 (minlat, maxlat, minlon, maxlon)
+area_of_interest = (20, 70, 360-60, 360) # lat must be between -90 and 90, lon must be between 0 and 360 (minlat, maxlat, minlon, maxlon)
    
 # Setup data points
 np.random.seed(42)
@@ -105,16 +109,16 @@ def plot_fields(field, sample_points, title, output_name):
     #plt.ylim(-90.0, 90.0)
     plt.savefig(output_name, dpi=300)
     
-plot_fields((dst_field_x, dst_field_y, field_z), (masked_x, masked_y), view_ft + " mol/L (RBF interpolation, " + str(nan_count) + " points)", "PlankTOM12_OSSE_RBF.png")
+plot_fields((dst_field_x, dst_field_y, field_z), (masked_x, masked_y), variable_name + " mol/L (RBF interpolation, " + str(nan_count) + " points)", "PlankTOM12_OSSE_RBF.png")
 
 #lsx = np.linspace(area_of_interest[2], area_of_interest[3], field_resolution_x)
 #lsy = np.linspace(area_of_interest[0], area_of_interest[1], field_resolution_y)
 #src_field_x, src_field_y = np.meshgrid(lsx, lsy)
-#plot_fields((src_field_x, src_field_y, month.sel(lon=lsx, lat=lsy, method="nearest").values), None, view_ft + " (Raw from NEMO-PlankTOM12)", "PlankTOM12_Raw.png")
+#plot_fields((src_field_x, src_field_y, month.sel(lon=lsx, lat=lsy, method="nearest").values), None, variable_name + " (Raw from NEMO-PlankTOM12)", "PlankTOM12_Raw.png")
 
 orig_slice = month.sel(lat=slice(area_of_interest[0], area_of_interest[1]), lon=slice(area_of_interest[2], area_of_interest[3]))
 src_field_x, src_field_y = np.meshgrid(orig_slice.coords["lon"].values, orig_slice.coords["lat"].values)
-plot_fields((src_field_x, src_field_y, orig_slice.values), None, view_ft + " mol/L (Raw from NEMO-PlankTOM12)", "PlankTOM12_Raw.png")
+plot_fields((src_field_x, src_field_y, orig_slice.values), None, variable_name + " mol/L (Raw from NEMO-PlankTOM12)", "PlankTOM12_Raw.png")
 
 # DeepSensor gubbins below here
 
@@ -124,8 +128,8 @@ from deepsensor.data import DataProcessor, TaskLoader
 from deepsensor.model import ConvNP
 from deepsensor.train import Trainer, set_gpu_default_device
 
-data_processor = DataProcessor(model_dir, x1_name="lat", x2_name="lon", time_name="time_counter")
-#DataProcessor(model_dir, x1_name="lat", x2_name="lon", time_name="time_counter")
+data_processor = DataProcessor(model_data_processor_dir, x1_name="lat", x2_name="lon", time_name="time_counter")
+#DataProcessor(model_data_processor_dir, x1_name="lat", x2_name="lon", time_name="time_counter")
 
 raster_blank_da = month.sel(lat=slice(area_of_interest[0], area_of_interest[1]), lon=slice(area_of_interest[2], area_of_interest[3]))
 raster_blank_da_processed = data_processor(raster_blank_da)
@@ -141,7 +145,7 @@ task_loader = TaskLoader(
 )
 
 test_task = task_loader("2000-05-16", ["all"], seed_override=42)
-model = ConvNP(data_processor, task_loader, model_checkpoint_dir)
+model = ConvNP(data_processor, task_loader, model_checkpoint)
 pred = model.predict(test_task, X_t=raster_blank_da)
 
 #print(pred["PIC"])
@@ -150,4 +154,4 @@ final_pred = np.squeeze(pred["PIC"]["mean"].values, axis=0)
 
 print(final_pred)
 
-plot_fields((src_field_x, src_field_y, final_pred), (masked_x, masked_y), view_ft + " mol/L (DeepSensor interpolation, " + str(nan_count) + " points)", "PlankTOM12_OSSE_DeepSensor.png")
+plot_fields((src_field_x, src_field_y, final_pred), (masked_x, masked_y), variable_name + " mol/L (DeepSensor interpolation, " + str(nan_count) + " points)", "PlankTOM12_OSSE_DeepSensor.png")
