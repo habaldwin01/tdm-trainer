@@ -1,5 +1,6 @@
 import os
 import datetime 
+import glob
 
 import numpy as np
 import xarray as xr
@@ -16,30 +17,29 @@ from tqdm import tqdm
 import matplotlib
 import matplotlib.pyplot as plt
 
-data_dir = "/home/alewin/Documents/by-project/timber/regridded-runs"
-model_dir = "/home/alewin/Documents/by-project/timber/models"
+# ===================================
+# TRAINING PARAMS
+# ===================================
+model_dir = "/home/alewin/Documents/by-project/timber/models" # Models and config will be saved here
+data_dir = "/home/alewin/Documents/by-project/timber/regridded-runs" # Training data stored here
+input_files = glob.glob(os.join(data_dir,"ORCA2_1m_19*_ptrc_T_regrid_360x180.nc"))
+train_prop = 0.8 # Proportion of raw dataset to use for training, rest used for validation
+epoch_count = 50 # 50 epochs used successfully by Francesco
+learning_rate = 5e-5 # 5e-5 used successfully by Francesco
+convnp_kwargs = {
+    "unet_channels": (32, 32, 32, 32),
+    "unet_kernels": 5,
+    "likelihood": "cnp"
+}
+sampling_locations = 64 # Determines number of sampling locations
+np.random.seed(42) # Seed set for OSSE reproducibility, sampling locations will change if seed changed
+variable_key = "PIC" # Parameter to build a model for
+# ===================================
+# TRAINING PARAMS
+# ===================================
 
-input_files = [
-        "ORCA2_1m_20010101_20011231_ptrc_T_regrid_360x180.nc",
-        "ORCA2_1m_20020101_20021231_ptrc_T_regrid_360x180.nc",
-        "ORCA2_1m_20030101_20031231_ptrc_T_regrid_360x180.nc",
-        "ORCA2_1m_20040101_20041231_ptrc_T_regrid_360x180.nc",
-        "ORCA2_1m_20050101_20051231_ptrc_T_regrid_360x180.nc",
-        "ORCA2_1m_20060101_20061231_ptrc_T_regrid_360x180.nc",
-        "ORCA2_1m_20070101_20071231_ptrc_T_regrid_360x180.nc"
-    ]
-
-view_key = "PIC"
-view_ft = "Pico-phytoplankton"
-
-#train_range = ("2001-01-01", "2006-12-31")
-#val_range = ("2000-01-01", "2000-12-31")
-
-train_prop = 0.8
-
-# Determines sampling locations, seed set for OSSE reproducibility
-sampling_locations = 64
-np.random.seed(42)
+for input_file in input_files:
+    print("Using " + input_file + " for training")
 
 now = datetime.datetime.now().astimezone(datetime.timezone.utc)
 model_output_dir = os.path.join(model_dir, "model_" + now.strftime("%Y-%m-%d_%H-%M-%S"))
@@ -48,13 +48,13 @@ os.mkdir(model_output_dir)
 raster_das = []
 station_das = []
 
-area_of_interest = (20, 70, 360-60, 360) # lat must be between -90 and 90, lon must be between -180 and 180 (minlat, maxlat, minlon, maxlon)
+area_of_interest = (20, 70, 360-60, 360) # lat must be between -90 and 90, lon must be between 0 and 360 (minlat, maxlat, minlon, maxlon)
 
 
 for fn in input_files:
-    xri = xr.open_dataset(os.path.join(data_dir, fn))
+    xri = xr.open_dataset(fn)
     xri["time_counter"] = xri.indexes["time_counter"].to_datetimeindex() # Translate generic "object" coordinates to datetime
-    surface_layer = xri[view_key].isel(deptht=1).sel(lat=slice(area_of_interest[0], area_of_interest[1]), lon=slice(area_of_interest[2], area_of_interest[3])) # Grab surface layer in area of interest, only holding variable of interest
+    surface_layer = xri[variable_key].isel(deptht=1).sel(lat=slice(area_of_interest[0], area_of_interest[1]), lon=slice(area_of_interest[2], area_of_interest[3])) # Grab surface layer in area of interest, only holding variable of interest
     for ts in range(surface_layer["time_counter"].size):
         # Random sampling locations
         samp_loc_x = (np.random.rand(sampling_locations) * (area_of_interest[3] - area_of_interest[2])) + area_of_interest[2]
@@ -100,13 +100,14 @@ tt_split_idx = int(train_prop * len(all_dates))
 train_dates = all_dates[:tt_split_idx]
 val_dates = all_dates[tt_split_idx:]
 
-#task = task_loader("2001-06-16", context_sampling="all", target_sampling="all")
-#fig = deepsensor.plot.task(task, task_loader)
-#plt.savefig("ds_debug.png", dpi=300)
-
+# Debug code to check DeepSensor tasks
+#
+# task = task_loader("2001-06-16", context_sampling="all", target_sampling="all")
+# fig = deepsensor.plot.task(task, task_loader)
+# plt.savefig("ds_debug.png", dpi=300)
 
 task_loader.load_dask()
-model = ConvNP(data_processor, task_loader, internal_density=64)
+model = ConvNP(data_processor, task_loader, **convnp_kwargs)
 
 def gen_tasks(dates, progress=True):
     tasks = []
@@ -132,11 +133,9 @@ val_tasks = gen_tasks(val_dates)
 
 print("Begin training!")
 
-# Train model
 val_rmse_best = np.inf
-#trainer = Trainer(model, lr=5e-5)
-trainer = Trainer(model, lr=5e-5)
-for epoch in tqdm(range(200)):
+trainer = Trainer(model, lr=learning_rate)
+for epoch in tqdm(range(epoch_count)):
     batch_losses = trainer(train_tasks)
     losses.append(np.mean(batch_losses))
     val_rmses.append(compute_val_rmse(model, val_tasks))
