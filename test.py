@@ -18,7 +18,7 @@ from mpl_toolkits.basemap import Basemap
 # ===================================
 # TEST PARAMS
 # ===================================
-model_checkpoint = "/home/alewin/Documents/by-project/timber/models/model_2026-10-08_00-47-26/deepsensor_model_rmse_1.345298e-06"
+model_checkpoint = "/home/alewin/Documents/by-project/timber/models/model_2026-10-16_15-34-40/deepsensor_model_rmse_1.2434939e-06"
 input_files = [
         "/home/alewin/Documents/datasets/timber/TOM12_TJ_A5BB_regrid/ORCA2_1m_20000101_20001231_ptrc_T_regrid_360x180.nc"
     ]
